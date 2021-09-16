@@ -678,6 +678,10 @@ function createTask(target, ...args) {
 
 ## Web Server Clustering
 
+Perform a CPU heavy task in a different process to avoid blocking the server thread.
+
+### Example 1
+
 ```js
 // cpu-heavy-task.js
 // listen for new messages from the parent process
@@ -726,6 +730,53 @@ const server = http.createServer(function (req, res) {
 });
 
 server.listen(8080, () => console.log('running on port 8080'));
+```
+
+### Example 2
+
+Create as many forked processes as CPU cores are available.
+
+General usage pattern:
+
+```js
+if (cluster.isMaster) {
+  // main process
+} else {
+  // forked child process(es). perform CPU heavy tasks here without blocking the main process
+}
+
+// communicate between the master and child process:
+Object.values(cluster.workers).forEach((worker) =>
+  worker.send('Hello from the master')
+);
+```
+
+Implementation:
+
+```js
+// server.js
+import { createServer } from 'http';
+import { cpus } from 'os';
+import cluster from 'cluster';
+
+if (cluster.isMaster) {
+  // executes once in the master process
+  const availableCpus = cpus();
+  console.log(`Clustering to ${availableCpus.length} processes`);
+  availableCpus.forEach(() => cluster.fork()); // creating new processes
+} else {
+  // executes as often as CPUs are available
+  const { pid } = process;
+  const server = createServer((req, res) => {
+    //
+    // some CPU heavy task here
+    //
+    console.log(`Handling request from ${pid}`);
+    res.end(`Hello from ${pid}\n`);
+  });
+
+  server.listen(8080, () => console.log(`Started at ${pid}`));
+}
 ```
 
 ## Thread Pool
