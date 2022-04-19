@@ -676,6 +676,9 @@ function createTask(target, ...args) {
 
 # Clustering, Worker Pool & CPU Intensive Tasks
 
+While your JavaScript code may run, at least by default, in a single-threaded environment, that doesn’t mean the process running your code is single-threaded. In Node.js, libuv is used as an OS-independent asynchronous I/O interface, and since not all system-provided I/O interfaces are asynchronous, it uses a pool of worker threads to avoid blocking program code when using otherwise-blocking APIs, such as filesystem APIs. By default, four of these threads are spawned, though this number is configurable via the `UV_THREADPOOL_SIZE` environment.
+
+
 ## Web Server Clustering
 
 Perform a CPU heavy task in a different process to avoid blocking the server thread.
@@ -782,6 +785,141 @@ if (cluster.isMaster) {
 ## Thread Pool
 
 TBC
+
+### RPC-Pattern 
+
+**High Level**
+```js
+worker.postMessage('square_sum|num:4');
+worker.postMessage('fibonacci|num:33');
+
+worker.onmessage = (result) => {
+  // Which result belongs to which message?
+  // '3524578'
+  // 4.1462643
+};
+```
+
+**JSON-RPC message structure**
+```json
+// worker.postMessage
+{"jsonrpc": "2.0", "method": "square_sum", "params": [4], "id": 1}
+{"jsonrpc": "2.0", "method": "fibonacci", "params": [33], "id": 2}
+
+// worker.onmessage
+{"jsonrpc": "2.0", "result": "3524578", "id": 2}
+{"jsonrpc": "2.0", "result": 4.1462643, "id": 1}
+```
+
+**RPC Worker Example**
+```js
+const worker = new RpcWorker('rpc-worker.js');
+
+Promise.allSettled([
+  worker.exec('square_sum', 1_000_000),
+  worker.exec('fibonacci', 1_000),
+  worker.exec('fake_method'),
+  worker.exec('bad'),
+]).then(([square_sum, fibonacci, fake, bad]) => {
+  console.log('square sum', square_sum);
+  console.log('fibonacci', fibonacci);
+  console.log('fake', fake);
+  console.log('bad', bad);
+});
+```
+
+```js
+// rpc-worker.js
+const { Worker } = require('worker_threads');
+
+class RpcWorker {
+  constructor(path) {
+    this.next_command_id = 0;
+    this.in_flight_commands = new Map();
+    this.worker = new Worker(path);
+    this.worker.onmessage = this.onMessageHandler.bind(this);
+  }
+  
+  onMessageHandler(msg) {
+    const { result, error, id } = msg.data;
+    const { resolve, reject } = this.in_flight_commands.get(id);
+    this.in_flight_commands.delete(id);
+    if (error) reject(error);
+    else resolve(result);
+  }
+  
+  exec(method, ...args) {
+    const id = ++this.next_command_id;
+    let resolve, reject;
+    const promise = new Promise((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    this.in_flight_commands.set(id, { resolve, reject });
+    this.worker.postMessage({ method, params: args, id });
+    return promise;
+  }
+}
+```
+
+### MessagePort and MessageChannel
+
+A MessagePort is one end of a two-way data stream. By default, one is provided to every worker thread to provide a communication channel to and from the main thread. It’s available in the worker thread as the parentPort property of the worker_threads module.
+
+```js
+const {
+  Worker,
+  isMainThread,
+  MessageChannel,
+  workerData
+} = require('worker_threads');
+
+if (isMainThread) {
+  const { port1, port2 } = new MessageChannel();
+  const worker = new Worker(__filename, {
+    workerData: {
+      port: port2
+    },
+    transferList: [port2]
+  });
+  port1.on('message', msg => {
+    port1.postMessage(msg);
+  });
+} else {
+  const { port } = workerData;
+  port.on('message', msg => {
+    console.log('We got a message from the main thread:', msg);
+  });
+  port.postMessage('Hello, World!');
+}
+```
+
+### Command Dispatcher Pattern
+
+```js
+const commands = { 
+  square_sum(max) {
+    let sum = 0;
+    for (let i = 0; i < max; i++) sum += Math.sqrt(i);
+    return sum;
+  },
+  fibonacci(limit) {
+    let prev = 1n, next = 0n, swap;
+    while (limit) {
+      swap = prev; prev = prev + next;
+      next = swap; limit--;
+    }
+    return String(next);
+  }
+};
+
+function dispatch(method, args) {
+  if (commands.hasOwnProperty(method)) { 
+    return commands[method](...args); 
+  }
+  throw new TypeError(`Command ${method} not defined!`);
+}
+```
 
 ## Worker in Browser
 
@@ -932,3 +1070,4 @@ Okta, auth0, AWS Cognito
 - Distributed Systems with Node.js, O'Reilly Media
 - Node.js Design Patterns: Design and implement production-grade Node.js applications using proven patterns and techniques, 3rd Edition
 - Node Cookbook: Actionable solutions for the full spectrum of Node.js 8 development, 3rd Edition
+- Multithreaded JavaScript, O'Reilly Media
