@@ -782,7 +782,7 @@ if (cluster.isMaster) {
 }
 ```
 
-## Thread Pool
+## Worker Thread Pool with `fork/child_process`
 
 `process-pool.js`
 
@@ -900,6 +900,120 @@ process.on('message', (msg) => {
 });
 
 process.send('ready');
+```
+
+## Worker Thread Pool with `worker_threads`
+
+`process-pool.js`
+
+```js
+// import { fork } from 'child_process';
+import { Worker } from 'worker_threads';
+
+export class ProcessPool {
+  constructor(file, poolMax) {
+    this.file = file;
+    this.poolMax = poolMax;
+    this.idleWorkers = [];
+    this.activeWorkers = [];
+    this.waitingTasks = [];
+  }
+
+  acquire() {
+    return new Promise((resolve, reject) => {
+      let worker;
+
+      if (this.idleWorkers.length > 0) {
+        worker = this.idleWorkers.pop();
+        this.activeWorkers.push(worker);
+        return resolve(worker);
+      }
+
+      if (this.activeWorkers.length >= this.poolMax) {
+        return this.waitingTasks.push({ resolve, reject });
+      }
+
+      // worker = fork(this.file); // child_process
+      worker = new Worker(this.file); // worker_threads
+
+      worker.once('online', () => {
+        this.activeWorkers.push(worker);
+        resolve(worker);
+      });
+
+      worker.once('exit', (code) => {
+        console.log(`Worker exited with code ${code}`);
+        this.activeWorkers = this.activeWorkers.filter((w) => worker !== w);
+        this.idleWorkers = this.idleWorkers.filter((w) => worker !== w);
+      });
+    });
+  }
+
+  release(worker) {
+    if (this.waitingTasks.length > 0) {
+      const { resolve } = this.waitingTasks.shift();
+      return resolve(worker);
+    }
+
+    this.activeWorkers = this.activeWorkers.filter((w) => worker !== w);
+    this.idleWorkers.push(worker);
+  }
+}
+```
+
+`cpu-heavy-task-interface.js`
+
+```js
+import { EventEmitter } from 'events';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
+import { ProcessPool } from './process-pool';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const workerFile = join(__dirname, 'workers', 'cpu-heavy-task.js');
+const workers = new ProcessPool(workerFile, 4);
+
+export class CpuHeavyTaskInterface extends EventEmitter {
+  constructor() {
+    super();
+  }
+
+  async start() {
+    const worker = await workers.acquire();
+
+    // worker.send({ event: 'startTask', data: 'foo bar' }); // fork/child_process
+    worker.postMessage({ event: 'startTask', data: 'foo bar' }); // worker_threads
+
+    const onMessage = (msg) => {
+      if (msg.event === 'completed') {
+        worker.removeListener('message', onMessage);
+        workers.release(worker);
+      }
+      if (msg.event === 'error') {
+        console.log('worker error');
+      }
+      this.emit(msg.event, msg.data);
+    };
+
+    worker.on('message', onMessage);
+  }
+}
+```
+
+`cpu-heavy-task.js`
+
+```js
+import { parentPort } from 'worker_threads';
+
+parentPort.on('message', (msg) => {
+  if (msg.event === 'startTask') {
+    // perform event-loop blocking, heavy CPU task
+    parentPort.postMessage({ event: 'completed', data: 'some data' });
+    return;
+  }
+
+  parentPort.postMessage({ event: 'error', data: 'event not supported' });
+});
 ```
 
 ### RPC-Pattern 
