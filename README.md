@@ -1217,13 +1217,18 @@ TBC
 
 lodash (object manipulation + everything), async (pooling, max # async in parallel), axios (HTTP requests), passport (authentication strategies), helmet (Express security), express-rate-limit, moment-timezone (date/time converter), ajv (JSON validator), yup (JSON validator), validator (string validator/sanitizer), uuid v4 (generated UUIDs), jsonwebtoken (web token manipulation)
 
+**Worker Pool & Process Pools**
+
+- [workerpool](https://www.npmjs.com/package/workerpool)
+- [piscina](https://www.npmjs.com/package/piscina)
+
 ## DB Access
 
-knex (DB schemas), sequelize (ORM for Postgres, MySQL), pq (Postgres adapter), ioredis (Redis adapter), mongoose (MongoDB adapter), graphql/apollo-server
+knex (DB schemas), sequelize (ORM for Postgres, MySQL), pq (Postgres adapter), ioredis & redis (Redis adapter), mongoose (MongoDB adapter), graphql/apollo-server, kafkajs (Kafka client)
 
 ## Dev Process
 
-nvm (Node version manager), pm2 (server management), prettify (prettifier), eslint (code linter), dotenv (.env loading), nodemon (restart .js automatically), husky (git hooks, pre-commit, etc), jest (testing), mocha (testing), chai (testing) winston (logging), debug (debugging)
+nvm (Node version manager), pm2 (server management), prettify (prettifier), eslint (code linter), dotenv (.env loading), nodemon (restart .js automatically), husky (git hooks, pre-commit, etc), jest (testing), mocha (testing), chai (testing), winston & npmlog (logging), debug (debugging)
 
 # Other Terms
 
